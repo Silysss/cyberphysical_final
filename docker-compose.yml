@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+  server:
+    build: ./server
+    container_name: iot_server
+    volumes:
+      - .:/app
+    command: make run-server
+
+  client:
+    build: ./client
+    container_name: iot_device
+    depends_on:
+      - server
+    volumes:
+      - .:/app
+    deploy:
+      resources:
+        limits:
+          cpus: "0.2"
+          memory: 32M
+    command: make run-client
