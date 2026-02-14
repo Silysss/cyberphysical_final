@@ -12,10 +12,14 @@
 #define KEY_SIZE_BITS 128 // Taille des clés en bits (m)
 #define KEY_SIZE_BYTES (KEY_SIZE_BITS / 8)
 #define P_INDICES 2 // Nombre d'indices par défi (p < n)
+#define AES_BLOCK_SIZE 16
 
-// Types de messages
-#define MSG_CHALLENGE 1
-#define MSG_RESPONSE 2
+// Types de messages pour le 3-way handshake
+#define MSG_M1 10 // Init: {device_id, session_id}
+#define MSG_M2 11 // Server Challenge: {C1, r1}
+#define MSG_M3 12 // Client Response + Challenge: {Enc(k1, r1 || C2 || r2)}
+#define MSG_M4 13 // Server Response: {Enc(k2, r2)}
+
 #define MSG_SUCCESS 3
 #define MSG_FAILURE 4
 
@@ -27,20 +31,34 @@ typedef struct {
 // Structure pour représenter un défi
 typedef struct {
     int indices[P_INDICES];
-    uint8_t nonce[KEY_SIZE_BYTES];
+    uint8_t nonce[KEY_SIZE_BYTES]; // r1 ou r2
 } Challenge;
 
-// Structure pour représenter une réponse
+// Structures pour les messages du handshake
 typedef struct {
-    uint8_t response[KEY_SIZE_BYTES];
-} Response;
+    char device_id[32];
+    uint32_t session_id;
+} MsgM1;
 
-// Structure pour représenter un message
+typedef struct {
+    Challenge challenge;
+} MsgM2;
+
+// Taille maximale pour les données chiffrées (r1(16) + C2(2*4) + r2(16) = 40, arrondi au bloc AES supérieur = 48)
+#define MAX_ENC_SIZE 64
+
+typedef struct {
+    uint8_t data[MAX_ENC_SIZE];
+    size_t size;
+} MsgEncrypted;
+
+// Structure pour représenter un message générique
 typedef struct {
     int type;
     union {
-        Challenge challenge;
-        Response response;
+        MsgM1 m1;
+        MsgM2 m2;
+        MsgEncrypted encrypted; // Pour M3 et M4
     } data;
 } Message;
 
@@ -52,8 +70,11 @@ void print_hex(const uint8_t *data, size_t size);
 
 // Fonctions de gestion du vault et du protocole
 void generate_challenge(Challenge *challenge);
-void compute_response(const SecureVault *vault, const Challenge *challenge, Response *response);
-int verify_response(const SecureVault *vault, const Challenge *challenge, const Response *response);
+void compute_vault_key(const SecureVault *vault, const Challenge *challenge, uint8_t *key);
+
+// Chiffrement AES avec les clés du vault
+int aes_encrypt(const uint8_t *plaintext, size_t plaintext_len, const uint8_t *key, uint8_t *ciphertext);
+int aes_decrypt(const uint8_t *ciphertext, size_t ciphertext_len, const uint8_t *key, uint8_t *plaintext);
 
 // Fonctions de communication réseau
 int send_message(int sockfd, const Message *message);

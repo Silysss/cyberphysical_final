@@ -4,13 +4,17 @@ Implementation of the authentication protocol from the paper "Authentication of 
 
 ## Algorithm Overview
 
-The protocol implements mutual authentication between an IoT device (client) and server using a shared secret vault:
+The protocol implements **mutual authentication** (3-way handshake) between an IoT device (client) and server using a shared secret vault:
 
-1. **Shared Secret**: Both parties possess an identical `SecureVault` containing `n` random keys of `m` bits each
-2. **Challenge-Response**:
-   - Server generates a challenge with `p` random key indices and a nonce
-   - Client computes response by XORing the selected keys and the nonce
-   - Server verifies the response using its copy of the vault
+1.  **M1 (Init)**: Client sends its `device_id` and a `session_id`.
+2.  **M2 (Challenge)**: Server sends Challenge `C1` and nonce `r1`.
+3.  **M3 (Response + Challenge)**: Client computes key `k1` from `C1`, generates challenge `C2` and nonce `r2`, and sends them encrypted with `k1`.
+4.  **M4 (Final Response)**: Server decrypts M3, verifies `r1`, computes `k2` from `C2`, and sends `r2` encrypted with `k2`.
+
+### Security Features
+- **Mutual Authentication**: Both client and server identify each other.
+- **AES-128-CBC Encryption**: Authentication messages are encrypted using keys derived from the XORed vault entries.
+- **Shared Secret Vault**: Both parties possess an identical `SecureVault` containing `n` random keys.
 
 ### Protocol Parameters
 
@@ -19,6 +23,7 @@ The protocol implements mutual authentication between an IoT device (client) and
 | `N_KEYS`        | 4     | Number of keys in vault (n)         |
 | `KEY_SIZE_BITS` | 128   | Key size in bits (m)                |
 | `P_INDICES`     | 2     | Number of indices per challenge (p) |
+| `AES_BLOCK_SIZE`| 16    | AES block size for encryption       |
 
 ## Project Structure
 

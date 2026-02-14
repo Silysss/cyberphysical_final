@@ -8,6 +8,7 @@ typedef struct {
     SecureVault vault;
     int server_socket;
     struct sockaddr_in server_addr;
+    char device_id[32];
 } IoTClient;
 
 // Initialisation du client

@@ -66,61 +66,68 @@ int server_start(IoTServer *server) {
 
 void server_handle_client(IoTServer *server) {
     socklen_t addrlen = sizeof(server->address);
-    
-    // Accepter une nouvelle connexion
-    server->client_socket = accept(server->server_socket, 
-                                    (struct sockaddr *)&server->address, 
-                                    &addrlen);
-    if (server->client_socket < 0) {
-        if (running) {
-            perror("Échec de l'acceptation");
-        }
-        return;
-    }
-    
-    printf("Client connecté depuis %s:%d\n",
-           inet_ntoa(server->address.sin_addr), 
-           ntohs(server->address.sin_port));
-    
-    // Générer un défi
-    Challenge challenge;
-    generate_challenge(&challenge);
-    printf("Défi généré: indices=%d,%d\n", challenge.indices[0], challenge.indices[1]);
-    
-    // Envoyer le défi au client
-    Message challenge_msg = {MSG_CHALLENGE, {.challenge = challenge}};
-    if (send_message(server->client_socket, &challenge_msg) < 0) {
+    Message msg;
+
+    server->client_socket = accept(server->server_socket, (struct sockaddr *)&server->address, &addrlen);
+    if (server->client_socket < 0) return;
+
+    printf("[SERVER] Client connecté depuis %s\n", inet_ntoa(server->address.sin_addr));
+
+    // 1. Recevoir M1 {device_id, session_id}
+    if (receive_message(server->client_socket, &msg) < 0 || msg.type != MSG_M1) {
         close(server->client_socket);
-        server->client_socket = -1;
         return;
     }
-    
-    // Recevoir la réponse du client
-    Message response_msg;
-    if (receive_message(server->client_socket, &response_msg) < 0) {
+    printf("[SERVER] M1 reçu: Device=%s, Session=%u\n", msg.data.m1.device_id, msg.data.m1.session_id);
+
+    // 2. Envoyer M2 {C1, r1}
+    Challenge c1;
+    generate_challenge(&c1);
+    msg.type = MSG_M2;
+    msg.data.m2.challenge = c1;
+    if (send_message(server->client_socket, &msg) < 0) {
         close(server->client_socket);
-        server->client_socket = -1;
         return;
     }
-    
-    if (response_msg.type != MSG_RESPONSE) {
-        fprintf(stderr, "Type de message inattendu: %d\n", response_msg.type);
+    printf("[SERVER] M2 envoyé (Challenge C1)\n");
+
+    // 3. Recevoir M3 {Enc(k1, r1 || C2 || r2)}
+    if (receive_message(server->client_socket, &msg) < 0 || msg.type != MSG_M3) {
         close(server->client_socket);
-        server->client_socket = -1;
         return;
     }
+
+    uint8_t k1[KEY_SIZE_BYTES];
+    compute_vault_key(&server->vault, &c1, k1);
+
+    uint8_t decrypted[MAX_ENC_SIZE];
+    int dec_len = aes_decrypt(msg.data.encrypted.data, msg.data.encrypted.size, k1, decrypted);
     
-    // Vérifier la réponse
-    int is_valid = verify_response(&server->vault, &challenge, &response_msg.data.response);
-    printf("Authentification: %s\n", is_valid ? "SUCCÈS" : "ÉCHEC");
-    
-    // Envoyer le résultat au client
-    Message result_msg = {is_valid ? MSG_SUCCESS : MSG_FAILURE};
-    send_message(server->client_socket, &result_msg);
-    
+    if (dec_len < 40 || memcmp(decrypted, c1.nonce, KEY_SIZE_BYTES) != 0) {
+        printf("[SERVER] Échec de l'authentification du client (mauvaise réponse ou r1 invalide)\n");
+        msg.type = MSG_FAILURE;
+        send_message(server->client_socket, &msg);
+        close(server->client_socket);
+        return;
+    }
+
+    // Extraire Challenge C2 de M3
+    Challenge c2;
+    memcpy(c2.indices, decrypted + 16, 8);
+    memcpy(c2.nonce, decrypted + 24, 16);
+    printf("[SERVER] M3 validé. Client authentifié ! C2 reçu.\n");
+
+    // 4. Envoyer M4 {Enc(k2, r2)}
+    uint8_t k2[KEY_SIZE_BYTES];
+    compute_vault_key(&server->vault, &c2, k2);
+
+    msg.type = MSG_M4;
+    msg.data.encrypted.size = aes_encrypt(c2.nonce, KEY_SIZE_BYTES, k2, msg.data.encrypted.data);
+    send_message(server->client_socket, &msg);
+    printf("[SERVER] M4 envoyé. Authentification Mutuelle: SUCCÈS\n");
+
     close(server->client_socket);
     server->client_socket = -1;
-    printf("Connexion fermée\n");
 }
 
 void server_cleanup(IoTServer *server) {

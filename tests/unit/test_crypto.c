@@ -73,8 +73,8 @@ static void test_challenge_indices(void) {
     print_test_pass();
 }
 
-static void test_challenge_response_cycle(void) {
-    print_test_header("Challenge-response cycle");
+static void test_vault_key_computation(void) {
+    print_test_header("Vault key computation");
 
     SecureVault vault;
     generate_secure_vault(&vault);
@@ -82,30 +82,34 @@ static void test_challenge_response_cycle(void) {
     Challenge challenge;
     generate_challenge(&challenge);
 
-    Response response;
-    compute_response(&vault, &challenge, &response);
+    uint8_t key[KEY_SIZE_BYTES];
+    compute_vault_key(&vault, &challenge, key);
 
-    int is_valid = verify_response(&vault, &challenge, &response);
-    assert(is_valid == 1);
+    // Manual XOR to verify
+    uint8_t expected[KEY_SIZE_BYTES] = {0};
+    for (int i = 0; i < P_INDICES; i++) {
+        xor_bytes(expected, expected, vault.keys[challenge.indices[i]], KEY_SIZE_BYTES);
+    }
 
+    assert(memcmp(key, expected, KEY_SIZE_BYTES) == 0);
     print_test_pass();
 }
 
-static void test_invalid_response_rejected(void) {
-    print_test_header("Invalid response rejection");
+static void test_aes_encryption_decryption(void) {
+    print_test_header("AES encryption/decryption");
 
-    SecureVault vault;
-    generate_secure_vault(&vault);
+    uint8_t key[16] = "0123456789abcdef";
+    uint8_t plaintext[32] = "Confidential data to encrypt...";
+    uint8_t ciphertext[64];
+    uint8_t decrypted[64];
 
-    Challenge challenge;
-    generate_challenge(&challenge);
+    int enc_len = aes_encrypt(plaintext, 32, key, ciphertext);
+    assert(enc_len > 0);
+    assert(enc_len % AES_BLOCK_SIZE == 0);
 
-    // Generate a random (wrong) response
-    Response wrong_response;
-    generate_random_bytes(wrong_response.response, KEY_SIZE_BYTES);
-
-    int is_valid = verify_response(&vault, &challenge, &wrong_response);
-    assert(is_valid == 0);
+    int dec_len = aes_decrypt(ciphertext, enc_len, key, decrypted);
+    assert(dec_len == 32);
+    assert(memcmp(plaintext, decrypted, 32) == 0);
 
     print_test_pass();
 }
@@ -157,8 +161,8 @@ int main(void) {
     test_xor_bytes();
     test_vault_generation();
     test_challenge_indices();
-    test_challenge_response_cycle();
-    test_invalid_response_rejected();
+    test_vault_key_computation();
+    test_aes_encryption_decryption();
     test_vault_save_load();
     test_vault_load_nonexistent();
 

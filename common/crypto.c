@@ -1,5 +1,7 @@
 #include "protocol.h"
 #include <openssl/rand.h>
+#include <openssl/evp.h>
+#include <openssl/aes.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -31,173 +33,141 @@ void print_hex(const uint8_t *data, size_t size) {
     printf("\n");
 }
 
-// Génère un défi aléatoire
 void generate_challenge(Challenge *challenge) {
-    // Générer des indices aléatoires uniques avec RAND_bytes
     for (int i = 0; i < P_INDICES; i++) {
         unsigned char rand_byte;
-        if (!RAND_bytes(&rand_byte, 1)) {
-            fprintf(stderr, "Erreur lors de la génération de l'indice aléatoire\n");
-            exit(EXIT_FAILURE);
-        }
+        generate_random_bytes(&rand_byte, 1);
         challenge->indices[i] = rand_byte % N_KEYS;
-        // Vérifier les doublons
         for (int j = 0; j < i; j++) {
             if (challenge->indices[i] == challenge->indices[j]) {
-                i--; // Recommencer si doublon
+                i--;
                 break;
             }
         }
     }
-    // Générer un nonce aléatoire
     generate_random_bytes(challenge->nonce, KEY_SIZE_BYTES);
 }
 
-// Calcule la réponse à un défi
-void compute_response(const SecureVault *vault, const Challenge *challenge, Response *response) {
-    uint8_t temp_result[KEY_SIZE_BYTES] = {0};
-    
-    // XOR des clés spécifiées dans le défi
+// Calcule la clé k = XOR(K[c1], K[c2], ...)
+void compute_vault_key(const SecureVault *vault, const Challenge *challenge, uint8_t *key) {
+    memset(key, 0, KEY_SIZE_BYTES);
     for (int i = 0; i < P_INDICES; i++) {
-        int key_index = challenge->indices[i];
-        xor_bytes(temp_result, temp_result, vault->keys[key_index], KEY_SIZE_BYTES);
+        int idx = challenge->indices[i];
+        xor_bytes(key, key, vault->keys[idx], KEY_SIZE_BYTES);
     }
-    
-    // XOR avec le nonce
-    xor_bytes(response->response, temp_result, challenge->nonce, KEY_SIZE_BYTES);
 }
 
-// Vérifie une réponse à un défi
-int verify_response(const SecureVault *vault, const Challenge *challenge, const Response *response) {
-    Response expected_response;
-    compute_response(vault, challenge, &expected_response);
-    
-    // Comparer les réponses
-    return memcmp(expected_response.response, response->response, KEY_SIZE_BYTES) == 0;
+// Chiffrement AES-128-CBC
+int aes_encrypt(const uint8_t *plaintext, size_t plaintext_len, const uint8_t *key, uint8_t *ciphertext) {
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    int len, ciphertext_len;
+    uint8_t iv[AES_BLOCK_SIZE] = {0}; // IV fixe pour l'exemple, à améliorer avec un nonce
+
+    if (!ctx) return -1;
+    if (EVP_EncryptInit_ex(ctx, EVP_aes_128_cbc(), NULL, key, iv) != 1) return -1;
+
+    if (EVP_EncryptUpdate(ctx, ciphertext, &len, plaintext, plaintext_len) != 1) return -1;
+    ciphertext_len = len;
+
+    if (EVP_EncryptFinal_ex(ctx, ciphertext + len, &len) != 1) return -1;
+    ciphertext_len += len;
+
+    EVP_CIPHER_CTX_free(ctx);
+    return ciphertext_len;
 }
 
-// Sauvegarde un vault dans un fichier
-int save_vault(const SecureVault *vault, const char *filename) {
-    FILE *file = fopen(filename, "wb");
-    if (!file) {
-        return 0; // Retourne 0 en cas d'échec
-    }
-    size_t written = fwrite(vault, sizeof(SecureVault), 1, file);
-    fclose(file);
-    return written == 1; // Retourne 1 en cas de succès
+// Déchiffrement AES-128-CBC
+int aes_decrypt(const uint8_t *ciphertext, size_t ciphertext_len, const uint8_t *key, uint8_t *plaintext) {
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    int len, plaintext_len;
+    uint8_t iv[AES_BLOCK_SIZE] = {0};
+
+    if (!ctx) return -1;
+    if (EVP_DecryptInit_ex(ctx, EVP_aes_128_cbc(), NULL, key, iv) != 1) return -1;
+
+    if (EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len) != 1) return -1;
+    plaintext_len = len;
+
+    if (EVP_DecryptFinal_ex(ctx, plaintext + len, &len) != 1) return -1;
+    plaintext_len += len;
+
+    EVP_CIPHER_CTX_free(ctx);
+    return plaintext_len;
 }
 
-// Charge un vault depuis un fichier
-int load_vault(SecureVault *vault, const char *filename) {
-    FILE *file = fopen(filename, "rb");
-    if (!file) {
-        return 0; // Retourne 0 en cas d'échec
-    }
-    size_t read = fread(vault, sizeof(SecureVault), 1, file);
-    fclose(file);
-    return read == 1; // Retourne 1 en cas de succès
-}
-
-// Helper: send all bytes reliably
 static int send_all(int sockfd, const void *buf, size_t len) {
     size_t total = 0;
     while (total < len) {
         ssize_t sent = send(sockfd, (const char *)buf + total, len - total, 0);
-        if (sent <= 0) {
-            perror("Erreur lors de l'envoi");
-            return -1;
-        }
+        if (sent <= 0) return -1;
         total += sent;
     }
     return 0;
 }
 
-// Helper: receive all bytes reliably
 static int recv_all(int sockfd, void *buf, size_t len) {
     size_t total = 0;
     while (total < len) {
         ssize_t received = recv(sockfd, (char *)buf + total, len - total, 0);
-        if (received <= 0) {
-            if (received == 0) {
-                fprintf(stderr, "Connexion fermée par le pair\n");
-            } else {
-                perror("Erreur lors de la réception");
-            }
-            return -1;
-        }
+        if (received <= 0) return -1;
         total += received;
     }
     return 0;
 }
 
-// Envoie un message via socket
 int send_message(int sockfd, const Message *message) {
-    // Envoyer le type de message d'abord
-    if (send_all(sockfd, &message->type, sizeof(message->type)) < 0) {
-        return -1;
-    }
+    if (send_all(sockfd, &message->type, sizeof(message->type)) < 0) return -1;
 
-    // Envoyer les données en fonction du type
     switch (message->type) {
-        case MSG_CHALLENGE: {
-            Challenge *challenge = (Challenge *)&message->data.challenge;
-            if (send_all(sockfd, challenge->indices, sizeof(challenge->indices)) < 0 ||
-                send_all(sockfd, challenge->nonce, sizeof(challenge->nonce)) < 0) {
-                return -1;
-            }
-            break;
-        }
-        case MSG_RESPONSE: {
-            Response *response = (Response *)&message->data.response;
-            if (send_all(sockfd, response->response, sizeof(response->response)) < 0) {
-                return -1;
-            }
-            break;
-        }
+        case MSG_M1:
+            return send_all(sockfd, &message->data.m1, sizeof(MsgM1));
+        case MSG_M2:
+            return send_all(sockfd, &message->data.m2, sizeof(MsgM2));
+        case MSG_M3:
+        case MSG_M4:
+            if (send_all(sockfd, &message->data.encrypted.size, sizeof(size_t)) < 0) return -1;
+            return send_all(sockfd, message->data.encrypted.data, message->data.encrypted.size);
         case MSG_SUCCESS:
         case MSG_FAILURE:
-            // Pas de données supplémentaires
-            break;
+            return 0;
         default:
-            fprintf(stderr, "Type de message inconnu: %d\n", message->type);
             return -1;
     }
-
-    return 0;
 }
 
-// Reçoit un message via socket
 int receive_message(int sockfd, Message *message) {
-    // Recevoir le type de message d'abord
-    if (recv_all(sockfd, &message->type, sizeof(message->type)) < 0) {
-        return -1;
-    }
+    if (recv_all(sockfd, &message->type, sizeof(message->type)) < 0) return -1;
 
-    // Recevoir les données en fonction du type
     switch (message->type) {
-        case MSG_CHALLENGE: {
-            Challenge *challenge = (Challenge *)&message->data.challenge;
-            if (recv_all(sockfd, challenge->indices, sizeof(challenge->indices)) < 0 ||
-                recv_all(sockfd, challenge->nonce, sizeof(challenge->nonce)) < 0) {
-                return -1;
-            }
-            break;
-        }
-        case MSG_RESPONSE: {
-            Response *response = (Response *)&message->data.response;
-            if (recv_all(sockfd, response->response, sizeof(response->response)) < 0) {
-                return -1;
-            }
-            break;
-        }
+        case MSG_M1:
+            return recv_all(sockfd, &message->data.m1, sizeof(MsgM1));
+        case MSG_M2:
+            return recv_all(sockfd, &message->data.m2, sizeof(MsgM2));
+        case MSG_M3:
+        case MSG_M4:
+            if (recv_all(sockfd, &message->data.encrypted.size, sizeof(size_t)) < 0) return -1;
+            if (message->data.encrypted.size > MAX_ENC_SIZE) return -1;
+            return recv_all(sockfd, message->data.encrypted.data, message->data.encrypted.size);
         case MSG_SUCCESS:
         case MSG_FAILURE:
-            // Pas de données supplémentaires
-            break;
+            return 0;
         default:
-            fprintf(stderr, "Type de message inconnu: %d\n", message->type);
             return -1;
     }
+}
 
-    return 0;
+int save_vault(const SecureVault *vault, const char *filename) {
+    FILE *file = fopen(filename, "wb");
+    if (!file) return 0;
+    size_t written = fwrite(vault, sizeof(SecureVault), 1, file);
+    fclose(file);
+    return written == 1;
+}
+
+int load_vault(SecureVault *vault, const char *filename) {
+    FILE *file = fopen(filename, "rb");
+    if (!file) return 0;
+    size_t read = fread(vault, sizeof(SecureVault), 1, file);
+    fclose(file);
+    return read == 1;
 }
