@@ -19,15 +19,25 @@ This project demonstrates a robust mutual authentication system for IoT devices,
 
 ```mermaid
 graph TD
+    %% Global Security
+    MK[MASTER_KEY] -. At-Rest Encryption .-> CV[vault.bin]
+    MK -. At-Rest Encryption .-> SV[vault.bin]
+
     subgraph "IoT Device (Client)"
-        C[iot_client] --> CV[vault.bin]
-        C -- establishing t --> S[iot_server]
+        CV --- Client[iot_client]
     end
+
     subgraph "IoT Server"
-        S --> SV[vault.bin]
+        SV --- Server[iot_server]
     end
-    CV -. Encrypted at Rest .-> K[MASTER_KEY]
-    SV -. Encrypted at Rest .-> K
+
+    %% Network Flow
+    Client -- Phase 1: Handshake --- Server
+    Client == Phase 2: Secure Data ==> Server
+
+    %% Note on Session Key
+    Key[Session Key t] -.-> Client
+    Key -.-> Server
 ```
 
 ### Protocol Phases
@@ -44,6 +54,30 @@ graph TD
     *   The client sends data encrypted with $t$.
     *   The server decrypts and processes the data.
 
+```mermaid
+sequenceDiagram
+    participant C as IoT Client
+    participant S as IoT Server
+
+    Note over C,S: Phase 1: Mutual Authentication (Handshake)
+    C->>S: M1: "Hello, I am Device-001"
+    
+    S->>C: M2: Challenge C1 (Indices) + Nonce r1
+    Note right of S: "Prove you possess the secret vault."
+
+    Note left of C: Client derives k1 by XORing<br/>vault keys specified in C1.
+    C->>S: M3: Enc(k1, r1 || t1 || C2 || r2)
+    Note left of C: "Proof of r1 attached. Sending my<br/>challenge C2 and my secret part t1."
+
+    Note right of S: Server decrypts using k1,<br/>verifies r1, and retrieves t1.
+    S->>C: M4: Enc(k2 ^ t1, r2 || t2)
+    Note right of S: "Client verified. Sending my part t2,<br/>encrypted with your t1."
+
+    Note over C,S: Final Session Key derivation: t = t1 XOR t2
+    
+    Note over C,S: Phase 2: Secure Communication
+    C->>S: MSG_DATA: Application data encrypted with session key t
+```
 ---
 
 ## 🚦 Getting Started
