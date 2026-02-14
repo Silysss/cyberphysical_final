@@ -5,11 +5,12 @@
 
 void client_init(IoTClient *client, const char *server_ip, int port) {
     const char *vault_path = getenv("VAULT_PATH");
-    if (!vault_path) vault_path = "common/vault.bin";
+    if (!vault_path) vault_path = "client/vault.bin";
 
     // Charger le vault
     if (!load_vault(&client->vault, vault_path)) {
-        fprintf(stderr, "Erreur: Impossible de charger le vault depuis %s\n", vault_path);
+        fprintf(stderr, "\n❌ ERREUR CRITIQUE: Impossible de charger le vault depuis '%s'.\n", vault_path);
+        fprintf(stderr, "   Assurez-vous de lancer 'make generate-vault' avant de démarrer.\n\n");
         exit(EXIT_FAILURE);
     }
 

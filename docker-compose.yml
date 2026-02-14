@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   server:
     build: ./server
@@ -11,7 +9,7 @@ services:
       - iot_network
     environment:
       - SERVER_PORT=8080
-      - VAULT_PATH=common/vault_server.bin
+      - VAULT_PATH=server/vault.bin
     command: make -B run-server
 
   client:
@@ -27,7 +25,7 @@ services:
     environment:
       - SERVER_HOST=server
       - SERVER_PORT=8080
-      - VAULT_PATH=common/vault_client.bin
+      - VAULT_PATH=client/vault.bin
     deploy:
       resources:
         limits:

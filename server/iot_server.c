@@ -11,11 +11,12 @@ void handle_signal(int sig) {
 
 void server_init(IoTServer *server, int port) {
     const char *vault_path = getenv("VAULT_PATH");
-    if (!vault_path) vault_path = "common/vault.bin";
+    if (!vault_path) vault_path = "server/vault.bin";
 
     // Charger le vault
     if (!load_vault(&server->vault, vault_path)) {
-        fprintf(stderr, "Erreur: Impossible de charger le vault depuis %s\n", vault_path);
+        fprintf(stderr, "\n❌ ERREUR CRITIQUE: Impossible de charger le vault depuis '%s'.\n", vault_path);
+        fprintf(stderr, "   Assurez-vous de lancer 'make generate-vault' avant de démarrer.\n\n");
         exit(EXIT_FAILURE);
     }
     
@@ -151,8 +152,12 @@ void server_handle_client(IoTServer *server) {
 
     // Mise à jour dynamique du Vault [Section IV.C]
     update_secure_vault(&server->vault, server->t, KEY_SIZE_BYTES);
-    save_vault(&server->vault, "common/vault.bin");
-    printf("[SERVER] Vault mis à jour et sauvegardé pour la prochaine session.\n");
+    
+    const char *vault_path = getenv("VAULT_PATH");
+    if (!vault_path) vault_path = "server/vault.bin";
+
+    save_vault(&server->vault, vault_path);
+    printf("[SERVER] Vault mis à jour et sauvegardé dans %s\n", vault_path);
 
     printf("[SERVER] Authentification Mutuelle: SUCCÈS\n");
 

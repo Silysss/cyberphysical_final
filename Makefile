@@ -41,6 +41,9 @@ $(BUILD_DIR)/generate_vault: common/generate_vault.c common/crypto.c | $(BUILD_D
 
 generate-vault: $(BUILD_DIR)/generate_vault
 	./$(BUILD_DIR)/generate_vault
+	cp common/vault.bin client/vault.bin
+	cp common/vault.bin server/vault.bin
+	@echo "✅ Vaults distribués dans client/ et server/"
 
 # ============================================================
 # Tests
@@ -65,10 +68,13 @@ test: unit-tests integration-tests
 # ============================================================
 
 up:
-	MY_UID=$$(id -u) MY_GID=$$(id -g) docker compose up --build
+	docker compose up --build -d
 
 stop:
 	docker compose down
+
+logs:
+	docker compose logs -f
 
 trigger-auth:
 	docker exec iot_device pkill -USR1 client_app
@@ -79,5 +85,11 @@ trigger-auth:
 
 clean:
 	rm -rf $(BUILD_DIR)
+	rm -f common/*.bin client/*.bin server/*.bin
+	@echo "✨ Nettoyage (build & vaults) effectué"
+
+# Nettoyage profond via Docker (si souci de permissions)
+docker-clean:
+	docker compose run --rm server rm -rf build
 
 .PHONY: all run-server run-client generate-vault unit-tests integration-tests test up stop clean
