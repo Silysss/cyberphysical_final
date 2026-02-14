@@ -4,20 +4,30 @@ services:
   server:
     build: ./server
     container_name: iot_server
+    user: "${MY_UID}:${MY_GID}"
     volumes:
       - .:/app
-    command: make run-server
+    networks:
+      - iot_network
+    command: make -B run-server
 
   client:
     build: ./client
     container_name: iot_device
+    user: "${MY_UID}:${MY_GID}"
     depends_on:
       - server
     volumes:
       - .:/app
+    networks:
+      - iot_network
     deploy:
       resources:
         limits:
           cpus: "0.2"
           memory: 32M
-    command: make run-client
+    command: sh -c "sleep 3 && make -B run-client"
+
+networks:
+  iot_network:
+    driver: bridge

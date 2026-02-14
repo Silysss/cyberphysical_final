@@ -1,31 +1,80 @@
 CC = gcc
 CFLAGS = -I./common -Wall
+LDFLAGS = -lcrypto
 BUILD_DIR = build
 
-all: prepare $(BUILD_DIR)/server_app $(BUILD_DIR)/client_app
+# ============================================================
+# Main targets
+# ============================================================
 
-prepare:
+all: $(BUILD_DIR)/server_app $(BUILD_DIR)/client_app
+
+$(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(BUILD_DIR)/server_app: server/main.c
-	$(CC) $(CFLAGS) server/main.c -o $(BUILD_DIR)/server_app
+# ============================================================
+# Applications
+# ============================================================
 
-$(BUILD_DIR)/client_app: client/main.c
-	$(CC) $(CFLAGS) client/main.c -o $(BUILD_DIR)/client_app
+$(BUILD_DIR)/server_app: server/main.c server/iot_server.c common/crypto.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) server/main.c server/iot_server.c common/crypto.c -o $(BUILD_DIR)/server_app $(LDFLAGS)
 
-# Commandes lancées par Docker
-run-server: all
+$(BUILD_DIR)/client_app: client/main.c client/iot_client.c common/crypto.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) client/main.c client/iot_client.c common/crypto.c -o $(BUILD_DIR)/client_app $(LDFLAGS)
+
+# ============================================================
+# Run commands (for Docker)
+# ============================================================
+
+run-server: $(BUILD_DIR)/server_app
 	./$(BUILD_DIR)/server_app
 
-run-client: all
+run-client: $(BUILD_DIR)/client_app
 	./$(BUILD_DIR)/client_app
 
-# Workflow local
+# ============================================================
+# Tools
+# ============================================================
+
+$(BUILD_DIR)/generate_vault: common/generate_vault.c common/crypto.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) common/generate_vault.c common/crypto.c -o $(BUILD_DIR)/generate_vault $(LDFLAGS)
+
+generate-vault: $(BUILD_DIR)/generate_vault
+	./$(BUILD_DIR)/generate_vault
+
+# ============================================================
+# Tests
+# ============================================================
+
+$(BUILD_DIR)/unit_tests: tests/unit/test_crypto.c common/crypto.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) tests/unit/test_crypto.c common/crypto.c -o $(BUILD_DIR)/unit_tests $(LDFLAGS)
+
+$(BUILD_DIR)/integration_test: tests/integration/test_authentication.c common/crypto.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) tests/integration/test_authentication.c common/crypto.c -o $(BUILD_DIR)/integration_test $(LDFLAGS)
+
+unit-tests: $(BUILD_DIR)/unit_tests
+	./$(BUILD_DIR)/unit_tests
+
+integration-tests: $(BUILD_DIR)/integration_test
+	./$(BUILD_DIR)/integration_test
+
+test: unit-tests integration-tests
+
+# ============================================================
+# Docker workflow
+# ============================================================
+
 up:
-	docker compose up --build
+	MY_UID=$$(id -u) MY_GID=$$(id -g) docker compose up --build
 
 stop:
 	docker compose down
 
+# ============================================================
+# Cleanup
+# ============================================================
+
 clean:
 	rm -rf $(BUILD_DIR)
+
+.PHONY: all run-server run-client generate-vault unit-tests integration-tests test up stop clean
