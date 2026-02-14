@@ -43,99 +43,72 @@ The protocol implements mutual authentication between an IoT device (client) and
 └── docker-compose.yml
 ```
 
-## Build Instructions
+## Build & Run Instructions
 
 ### Prerequisites
 
 - GCC compiler
 - OpenSSL development libraries
-- Docker & Docker Compose (for containerized deployment)
+- Docker & Docker Compose
 
-### Local Build
+### 1. Initial Setup
 
-```bash
-# Build everything
-make all
-
-# Build and run server locally
-make run-server
-
-# Build and run client locally (in another terminal)
-make run-client
-```
-
-### Docker Build
-
-```bash
-# Build Docker images
-docker compose build
-
-# Run both containers
-docker compose up
-
-# Run in background
-docker compose up -d
-
-# View logs
-docker compose logs -f
-
-# Stop containers
-docker compose down
-```
-
-## Testing
-
-```bash
-# Run unit tests
-make unit-tests
-
-# Run integration tests
-make integration-tests
-
-# Run all tests
-make test
-```
-
-### Unit Tests
-
-The unit tests verify:
-
-- Random byte generation
-- XOR operations
-- Vault generation and persistence
-- Challenge-response computation
-
-### Integration Tests
-
-The integration tests verify the complete authentication flow between simulated client and server.
-
-## Vault Generation
-
-Generate a new shared vault:
+Before running the system, you must generate the shared secret vault:
 
 ```bash
 make generate-vault
 ```
 
-This creates `common/vault.bin` containing 4 random 128-bit keys.
+### 2. Running with Docker (Recommended)
+
+The project is optimized for a containerized environment where the client and server run as persistent services.
+
+```bash
+# Start the system
+make up
+
+# In another terminal, trigger an authentication session
+make trigger-auth
+
+# Monitor the interaction
+docker compose logs -f
+```
+
+> [!NOTE]
+> The client now runs as a **daemon**. It will stay alive indefinitely and perform authentication only when it receives a `SIGUSR1` signal (sent via `make trigger-auth`).
+
+### 3. Local Build (Manual)
+
+```bash
+# Build everything
+make all
+
+# Run server
+./build/server_app
+
+# Run client (daemon mode)
+./build/client_app
+# In another terminal: pkill -USR1 client_app
+```
+
+## Testing
+
+```bash
+# Run all tests (Unit + Integration)
+make test
+```
 
 ## Docker Networking
 
-The client container connects to the server using the Docker service name `server` as the hostname. Both containers share the `iot_network` bridge network.
-
-## Security Notes
-
-- All random values are generated using OpenSSL's `RAND_bytes()` for cryptographic security
-- The vault file should be securely distributed to both parties before deployment
-- This MVP implementation does not include AES encryption (as per requirements)
+The client connects to the server using the service name `server`. The `Makefile` automatically handles non-root user permissions by passing `MY_UID` and `MY_GID` to the containers.
 
 ## Future Enhancements
-
-- Add TLS/SSL for transport encryption
-- Implement vault rotation
-- Add mutual authentication (client challenges server)
-- Implement replay attack protection with timestamps
+- [x] Client Daemonization & Trigger mechanism
+- [ ] Mutual authentication (3-way handshake)
+- [ ] Session key establishment (PFS)
+- [ ] Dynamic vault rotation (HMAC-based)
+- [ ] AES encryption for challenge-response
 
 ## Reference
 
-Based on: "Authentication of IoT Device and IoT Server Using Secure Vaults"
+Based on: "Authentication of IoT Device and IoT Server Using Secure Vaults" (Shah & Venkatesan)

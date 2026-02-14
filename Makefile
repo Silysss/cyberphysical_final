@@ -70,6 +70,9 @@ up:
 stop:
 	docker compose down
 
+trigger-auth:
+	docker exec iot_device pkill -USR1 client_app
+
 # ============================================================
 # Cleanup
 # ============================================================
