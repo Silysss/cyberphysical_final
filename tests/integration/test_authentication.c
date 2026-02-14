@@ -46,50 +46,85 @@ static void test_3way_handshake_flow(void) {
     generate_challenge(&ctx.c1);
     compute_vault_key(&ctx.server_vault, &ctx.c1, ctx.k1);
 
-    // Stage 3: Client computes k1, generates C2, r2. Sends M3 {Enc(k1, r1||C2||r2)}
-    printf("  3. [CLIENT -> SERVER] M3: Response to C1 + Challenge C2\n");
+    // Stage 3: Client computes k1, generates C2, r2, t1. Sends M3 {Enc(k1, r1||t1||C2||r2)}
+    printf("  3. [CLIENT -> SERVER] M3: Response to C1 + Challenge C2 + t1\n");
     uint8_t client_k1[16];
     compute_vault_key(&ctx.client_vault, &ctx.c1, client_k1);
     assert(memcmp(ctx.k1, client_k1, 16) == 0);
 
+    uint8_t t1[16];
+    generate_random_bytes(t1, 16);
+
     generate_challenge(&ctx.c2);
-    uint8_t plaintext_m3[40];
+    uint8_t plaintext_m3[56];
     memcpy(plaintext_m3, ctx.c1.nonce, 16);
-    memcpy(plaintext_m3 + 16, ctx.c2.indices, 8);
-    memcpy(plaintext_m3 + 24, ctx.c2.nonce, 16);
+    memcpy(plaintext_m3 + 16, t1, 16);
+    memcpy(plaintext_m3 + 32, ctx.c2.indices, 8);
+    memcpy(plaintext_m3 + 40, ctx.c2.nonce, 16);
 
     uint8_t ciphertext_m3[64];
-    int enc_len_m3 = aes_encrypt(plaintext_m3, 40, client_k1, ciphertext_m3);
+    int enc_len_m3 = aes_encrypt(plaintext_m3, 56, client_k1, ciphertext_m3);
     assert(enc_len_m3 > 0);
 
-    // Stage 4: Server decrypts M3, verifies r1, computes k2. Sends M4 {Enc(k2, r2)}
-    printf("  4. [SERVER -> CLIENT] M4: Response to C2\n");
+    // Stage 4: Server decrypts M3, verifies r1, extracts t1, generates t2. Sends M4 {Enc(k2 ^ t1, r2 || t2)}
+    printf("  4. [SERVER -> CLIENT] M4: Response to C2 + t2\n");
     uint8_t decrypted_m3[64];
     int dec_len_m3 = aes_decrypt(ciphertext_m3, enc_len_m3, ctx.k1, decrypted_m3);
-    assert(dec_len_m3 >= 40);
+    assert(dec_len_m3 >= 56);
     assert(memcmp(decrypted_m3, ctx.c1.nonce, 16) == 0); // Verify r1
 
+    uint8_t server_received_t1[16];
+    memcpy(server_received_t1, decrypted_m3 + 16, 16);
+
     Challenge server_received_c2;
-    memcpy(server_received_c2.indices, decrypted_m3 + 16, 8);
-    memcpy(server_received_c2.nonce, decrypted_m3 + 24, 16);
+    memcpy(server_received_c2.indices, decrypted_m3 + 32, 8);
+    memcpy(server_received_c2.nonce, decrypted_m3 + 40, 16);
 
     compute_vault_key(&ctx.server_vault, &server_received_c2, ctx.k2);
+    
+    uint8_t t2[16];
+    generate_random_bytes(t2, 16);
+
+    // Key for M4 = k2 ^ t1
+    uint8_t k_m4[16];
+    xor_bytes(k_m4, ctx.k2, server_received_t1, 16);
+
+    uint8_t plaintext_m4[32];
+    memcpy(plaintext_m4, server_received_c2.nonce, 16);
+    memcpy(plaintext_m4 + 16, t2, 16);
+
     uint8_t ciphertext_m4[64];
-    int enc_len_m4 = aes_encrypt(server_received_c2.nonce, 16, ctx.k2, ciphertext_m4);
+    int enc_len_m4 = aes_encrypt(plaintext_m4, 32, k_m4, ciphertext_m4);
     assert(enc_len_m4 > 0);
 
-    // Stage 5: Client decrypts M4, verifies r2
-    printf("  5. [CLIENT] Verifying M4...\n");
+    uint8_t server_t[16];
+    xor_bytes(server_t, server_received_t1, t2, 16);
+
+    // Stage 5: Client decrypts M4, verifies r2, extracts t2, computes entropy
+    printf("  5. [CLIENT] Verifying M4 and computing session key...\n");
     uint8_t client_k2[16];
     compute_vault_key(&ctx.client_vault, &ctx.c2, client_k2);
-    assert(memcmp(ctx.k2, client_k2, 16) == 0);
+    
+    uint8_t client_k_m4[16];
+    xor_bytes(client_k_m4, client_k2, t1, 16);
 
     uint8_t decrypted_m4[64];
-    int dec_len_m4 = aes_decrypt(ciphertext_m4, enc_len_m4, client_k2, decrypted_m4);
-    assert(dec_len_m4 >= 16);
+    int dec_len_m4 = aes_decrypt(ciphertext_m4, enc_len_m4, client_k_m4, decrypted_m4);
+    assert(dec_len_m4 >= 32);
     assert(memcmp(decrypted_m4, ctx.c2.nonce, 16) == 0);
 
-    printf("\n  Result: ✅ MUTUAL AUTHENTICATION SUCCESS\n");
+    uint8_t client_received_t2[16];
+    memcpy(client_received_t2, decrypted_m4 + 16, 16);
+
+    uint8_t client_t[16];
+    xor_bytes(client_t, t1, client_received_t2, 16);
+
+    assert(memcmp(server_t, client_t, 16) == 0);
+
+    printf("\n  Result: ✅ MUTUAL AUTHENTICATION & SESSION KEY SUCCESS\n");
+    printf("  Session Key: ");
+    for(int i=0; i<16; i++) printf("%02x", client_t[i]);
+    printf("\n");
 }
 
 static void test_handshake_fails_on_wrong_vault(void) {

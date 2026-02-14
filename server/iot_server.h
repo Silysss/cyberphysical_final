@@ -10,6 +10,7 @@ typedef struct {
     int server_socket;
     int client_socket;
     struct sockaddr_in address;
+    uint8_t session_key[KEY_SIZE_BYTES];
 } IoTServer;
 
 // Initialisation du serveur

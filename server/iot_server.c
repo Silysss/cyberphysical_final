@@ -103,7 +103,8 @@ void server_handle_client(IoTServer *server) {
     uint8_t decrypted[MAX_ENC_SIZE];
     int dec_len = aes_decrypt(msg.data.encrypted.data, msg.data.encrypted.size, k1, decrypted);
     
-    if (dec_len < 40 || memcmp(decrypted, c1.nonce, KEY_SIZE_BYTES) != 0) {
+    // Vérifier r1 et extraire t1 + challenge C2 (r1:16, t1:16, indices:8, r2:16)
+    if (dec_len < 56 || memcmp(decrypted, c1.nonce, KEY_SIZE_BYTES) != 0) {
         printf("[SERVER] Échec de l'authentification du client (mauvaise réponse ou r1 invalide)\n");
         msg.type = MSG_FAILURE;
         send_message(server->client_socket, &msg);
@@ -111,20 +112,40 @@ void server_handle_client(IoTServer *server) {
         return;
     }
 
-    // Extraire Challenge C2 de M3
-    Challenge c2;
-    memcpy(c2.indices, decrypted + 16, 8);
-    memcpy(c2.nonce, decrypted + 24, 16);
-    printf("[SERVER] M3 validé. Client authentifié ! C2 reçu.\n");
+    uint8_t t1[KEY_SIZE_BYTES];
+    memcpy(t1, decrypted + 16, 16);
 
-    // 4. Envoyer M4 {Enc(k2, r2)}
+    Challenge c2;
+    memcpy(c2.indices, decrypted + 32, 8);
+    memcpy(c2.nonce, decrypted + 40, 16);
+    printf("[SERVER] M3 validé. t1 reçu et Client authentifié ! C2 reçu.\n");
+
+    // 4. Envoyer M4 {Enc(k2 ^ t1, r2 || t2)}
     uint8_t k2[KEY_SIZE_BYTES];
     compute_vault_key(&server->vault, &c2, k2);
 
+    uint8_t t2[KEY_SIZE_BYTES];
+    generate_random_bytes(t2, KEY_SIZE_BYTES);
+
+    // Clé pour M4 = k2 ^ t1
+    uint8_t k_m4[KEY_SIZE_BYTES];
+    xor_bytes(k_m4, k2, t1, KEY_SIZE_BYTES);
+
+    // Données à chiffrer : r2 (16 bytes) + t2 (16 bytes) = 32 bytes
+    uint8_t plaintext_m4[32];
+    memcpy(plaintext_m4, c2.nonce, 16);
+    memcpy(plaintext_m4 + 16, t2, 16);
+
     msg.type = MSG_M4;
-    msg.data.encrypted.size = aes_encrypt(c2.nonce, KEY_SIZE_BYTES, k2, msg.data.encrypted.data);
+    msg.data.encrypted.size = aes_encrypt(plaintext_m4, 32, k_m4, msg.data.encrypted.data);
     send_message(server->client_socket, &msg);
-    printf("[SERVER] M4 envoyé. Authentification Mutuelle: SUCCÈS\n");
+
+    // Calculer la clé de session t = t1 ^ t2
+    xor_bytes(server->session_key, t1, t2, KEY_SIZE_BYTES);
+    printf("[SERVER] M4 envoyé. Clé de session établie !\n");
+    printf("Session Key: ");
+    print_hex(server->session_key, 16);
+    printf("[SERVER] Authentification Mutuelle: SUCCÈS\n");
 
     close(server->client_socket);
     server->client_socket = -1;

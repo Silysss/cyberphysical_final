@@ -58,39 +58,56 @@ int client_authenticate(IoTClient *client) {
     Challenge c1 = msg.data.m2.challenge;
     printf("[CLIENT] M2 reçu (C1 indices: %d,%d)\n", c1.indices[0], c1.indices[1]);
 
-    // 3. Préparer M3 {Enc(k1, r1 || C2 || r2)}
+    // 3. Préparer M3 {Enc(k1, r1 || t1 || C2 || r2)}
     uint8_t k1[KEY_SIZE_BYTES];
     compute_vault_key(&client->vault, &c1, k1);
+
+    uint8_t t1[KEY_SIZE_BYTES];
+    generate_random_bytes(t1, KEY_SIZE_BYTES);
 
     Challenge c2;
     generate_challenge(&c2); // Contient r2 dans c2.nonce
 
-    // Données à chiffrer : r1 (16 bytes) + C2 indices (2*4 bytes) + r2 (16 bytes) = 40 bytes
-    uint8_t plaintext[40];
-    memcpy(plaintext, c1.nonce, 16);
-    memcpy(plaintext + 16, c2.indices, 8);
-    memcpy(plaintext + 24, c2.nonce, 16);
+    // Données à chiffrer : r1(16) + t1(16) + C2(8) + r2(16) = 56 bytes
+    uint8_t plaintext_m3[56];
+    memcpy(plaintext_m3, c1.nonce, 16);
+    memcpy(plaintext_m3 + 16, t1, 16);
+    memcpy(plaintext_m3 + 32, c2.indices, 8);
+    memcpy(plaintext_m3 + 40, c2.nonce, 16);
 
     msg.type = MSG_M3;
-    msg.data.encrypted.size = aes_encrypt(plaintext, 40, k1, msg.data.encrypted.data);
+    msg.data.encrypted.size = aes_encrypt(plaintext_m3, 56, k1, msg.data.encrypted.data);
     if (send_message(client->server_socket, &msg) < 0) return -1;
-    printf("[CLIENT] M3 envoyé (réponse chiffrée + challenge C2)\n");
+    printf("[CLIENT] M3 envoyé (réponse + challenge C2 + t1)\n");
 
-    // 4. Recevoir M4 {Enc(k2, r2)}
+    // 4. Recevoir M4 {Enc(k2 ^ t1, r2 || t2)}
     if (receive_message(client->server_socket, &msg) < 0 || msg.type != MSG_M4) return -1;
     
     uint8_t k2[KEY_SIZE_BYTES];
     compute_vault_key(&client->vault, &c2, k2);
 
-    uint8_t decrypted_r2[KEY_SIZE_BYTES + 32];
-    int dec_len = aes_decrypt(msg.data.encrypted.data, msg.data.encrypted.size, k2, decrypted_r2);
+    // Clé pour M4 = k2 ^ t1
+    uint8_t k_m4[KEY_SIZE_BYTES];
+    xor_bytes(k_m4, k2, t1, KEY_SIZE_BYTES);
+
+    uint8_t decrypted_m4[64];
+    int dec_len = aes_decrypt(msg.data.encrypted.data, msg.data.encrypted.size, k_m4, decrypted_m4);
     
-    if (dec_len < (int)KEY_SIZE_BYTES || memcmp(decrypted_r2, c2.nonce, KEY_SIZE_BYTES) != 0) {
-        fprintf(stderr, "[CLIENT] Échec de l'authentification du serveur !\n");
+    // Vérifier r2 et extraire t2
+    if (dec_len < 32 || memcmp(decrypted_m4, c2.nonce, KEY_SIZE_BYTES) != 0) {
+        fprintf(stderr, "[CLIENT] Échec de l'authentification du serveur ou r2 invalide !\n");
         return -1;
     }
 
-    printf("[CLIENT] M4 reçu et validé. Serveur authentifié !\n");
+    uint8_t t2[KEY_SIZE_BYTES];
+    memcpy(t2, decrypted_m4 + 16, 16);
+
+    // Calculer la clé de session t = t1 ^ t2
+    xor_bytes(client->session_key, t1, t2, KEY_SIZE_BYTES);
+
+    printf("[CLIENT] M4 reçu et validé. Clé de session établie !\n");
+    printf("Session Key: ");
+    print_hex(client->session_key, 16);
     printf("Authentification Mutuelle: SUCCÈS\n");
     return 0;
 }
