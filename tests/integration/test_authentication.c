@@ -57,10 +57,10 @@ static void test_3way_handshake_flow(void) {
 
     generate_challenge(&ctx.c2);
     uint8_t plaintext_m3[56];
-    memcpy(plaintext_m3, ctx.c1.nonce, 16);
+    memcpy(plaintext_m3, ctx.c1.r, 16);
     memcpy(plaintext_m3 + 16, t1, 16);
     memcpy(plaintext_m3 + 32, ctx.c2.indices, 8);
-    memcpy(plaintext_m3 + 40, ctx.c2.nonce, 16);
+    memcpy(plaintext_m3 + 40, ctx.c2.r, 16);
 
     uint8_t ciphertext_m3[64];
     int enc_len_m3 = aes_encrypt(plaintext_m3, 56, client_k1, ciphertext_m3);
@@ -71,14 +71,14 @@ static void test_3way_handshake_flow(void) {
     uint8_t decrypted_m3[64];
     int dec_len_m3 = aes_decrypt(ciphertext_m3, enc_len_m3, ctx.k1, decrypted_m3);
     assert(dec_len_m3 >= 56);
-    assert(memcmp(decrypted_m3, ctx.c1.nonce, 16) == 0); // Verify r1
+    assert(memcmp(decrypted_m3, ctx.c1.r, 16) == 0); // Verify r1
 
     uint8_t server_received_t1[16];
     memcpy(server_received_t1, decrypted_m3 + 16, 16);
 
     Challenge server_received_c2;
     memcpy(server_received_c2.indices, decrypted_m3 + 32, 8);
-    memcpy(server_received_c2.nonce, decrypted_m3 + 40, 16);
+    memcpy(server_received_c2.r, decrypted_m3 + 40, 16);
 
     compute_vault_key(&ctx.server_vault, &server_received_c2, ctx.k2);
     
@@ -90,7 +90,7 @@ static void test_3way_handshake_flow(void) {
     xor_bytes(k_m4, ctx.k2, server_received_t1, 16);
 
     uint8_t plaintext_m4[32];
-    memcpy(plaintext_m4, server_received_c2.nonce, 16);
+    memcpy(plaintext_m4, server_received_c2.r, 16);
     memcpy(plaintext_m4 + 16, t2, 16);
 
     uint8_t ciphertext_m4[64];
@@ -111,7 +111,7 @@ static void test_3way_handshake_flow(void) {
     uint8_t decrypted_m4[64];
     int dec_len_m4 = aes_decrypt(ciphertext_m4, enc_len_m4, client_k_m4, decrypted_m4);
     assert(dec_len_m4 >= 32);
-    assert(memcmp(decrypted_m4, ctx.c2.nonce, 16) == 0);
+    assert(memcmp(decrypted_m4, ctx.c2.r, 16) == 0);
 
     uint8_t client_received_t2[16];
     memcpy(client_received_t2, decrypted_m4 + 16, 16);
@@ -144,9 +144,9 @@ static void test_handshake_fails_on_wrong_vault(void) {
 
     generate_challenge(&ctx.c2);
     uint8_t plaintext_m3[40];
-    memcpy(plaintext_m3, ctx.c1.nonce, 16);
+    memcpy(plaintext_m3, ctx.c1.r, 16);
     memcpy(plaintext_m3 + 16, ctx.c2.indices, 8);
-    memcpy(plaintext_m3 + 24, ctx.c2.nonce, 16);
+    memcpy(plaintext_m3 + 24, ctx.c2.r, 16);
 
     uint8_t ciphertext_m3[64];
     aes_encrypt(plaintext_m3, 40, client_k1, ciphertext_m3);
@@ -156,7 +156,7 @@ static void test_handshake_fails_on_wrong_vault(void) {
     int dec_len_m3 = aes_decrypt(ciphertext_m3, 64, ctx.k1, decrypted_m3);
     
     // Decryption will either fail or yield garbage
-    int success = (dec_len_m3 >= 40 && memcmp(decrypted_m3, ctx.c1.nonce, 16) == 0);
+    int success = (dec_len_m3 >= 40 && memcmp(decrypted_m3, ctx.c1.r, 16) == 0);
 
     printf("\n  Result: %s\n", success ? "❌ UNEXPECTED SUCCESS" : "✅ CORRECTLY REJECTED");
     assert(success == 0);

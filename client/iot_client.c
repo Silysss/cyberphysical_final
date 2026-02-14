@@ -66,14 +66,14 @@ int client_authenticate(IoTClient *client) {
     generate_random_bytes(t1, KEY_SIZE_BYTES);
 
     Challenge c2;
-    generate_challenge(&c2); // Contient r2 dans c2.nonce
+    generate_challenge(&c2); // Contient r2 dans c2.r
 
     // Données à chiffrer : r1(16) + t1(16) + C2(8) + r2(16) = 56 bytes
     uint8_t plaintext_m3[56];
-    memcpy(plaintext_m3, c1.nonce, 16);
+    memcpy(plaintext_m3, c1.r, 16);
     memcpy(plaintext_m3 + 16, t1, 16);
     memcpy(plaintext_m3 + 32, c2.indices, 8);
-    memcpy(plaintext_m3 + 40, c2.nonce, 16);
+    memcpy(plaintext_m3 + 40, c2.r, 16);
 
     msg.type = MSG_M3;
     msg.data.encrypted.size = aes_encrypt(plaintext_m3, 56, k1, msg.data.encrypted.data);
@@ -94,7 +94,7 @@ int client_authenticate(IoTClient *client) {
     int dec_len = aes_decrypt(msg.data.encrypted.data, msg.data.encrypted.size, k_m4, decrypted_m4);
     
     // Vérifier r2 et extraire t2
-    if (dec_len < 32 || memcmp(decrypted_m4, c2.nonce, KEY_SIZE_BYTES) != 0) {
+    if (dec_len < 32 || memcmp(decrypted_m4, c2.r, KEY_SIZE_BYTES) != 0) {
         fprintf(stderr, "[CLIENT] Échec de l'authentification du serveur ou r2 invalide !\n");
         return -1;
     }
@@ -103,11 +103,11 @@ int client_authenticate(IoTClient *client) {
     memcpy(t2, decrypted_m4 + 16, 16);
 
     // Calculer la clé de session t = t1 ^ t2
-    xor_bytes(client->session_key, t1, t2, KEY_SIZE_BYTES);
+    xor_bytes(client->t, t1, t2, KEY_SIZE_BYTES);
 
     printf("[CLIENT] M4 reçu et validé. Clé de session établie !\n");
-    printf("Session Key: ");
-    print_hex(client->session_key, 16);
+    printf("Session Key (t): ");
+    print_hex(client->t, 16);
     printf("Authentification Mutuelle: SUCCÈS\n");
     return 0;
 }

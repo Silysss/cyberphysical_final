@@ -9,7 +9,7 @@ typedef struct {
     int server_socket;
     struct sockaddr_in server_addr;
     char device_id[32];
-    uint8_t session_key[KEY_SIZE_BYTES];
+    uint8_t t[KEY_SIZE_BYTES];
 } IoTClient;
 
 // Initialisation du client

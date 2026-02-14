@@ -104,7 +104,7 @@ void server_handle_client(IoTServer *server) {
     int dec_len = aes_decrypt(msg.data.encrypted.data, msg.data.encrypted.size, k1, decrypted);
     
     // Vérifier r1 et extraire t1 + challenge C2 (r1:16, t1:16, indices:8, r2:16)
-    if (dec_len < 56 || memcmp(decrypted, c1.nonce, KEY_SIZE_BYTES) != 0) {
+    if (dec_len < 56 || memcmp(decrypted, c1.r, KEY_SIZE_BYTES) != 0) {
         printf("[SERVER] Échec de l'authentification du client (mauvaise réponse ou r1 invalide)\n");
         msg.type = MSG_FAILURE;
         send_message(server->client_socket, &msg);
@@ -117,7 +117,7 @@ void server_handle_client(IoTServer *server) {
 
     Challenge c2;
     memcpy(c2.indices, decrypted + 32, 8);
-    memcpy(c2.nonce, decrypted + 40, 16);
+    memcpy(c2.r, decrypted + 40, 16);
     printf("[SERVER] M3 validé. t1 reçu et Client authentifié ! C2 reçu.\n");
 
     // 4. Envoyer M4 {Enc(k2 ^ t1, r2 || t2)}
@@ -133,7 +133,7 @@ void server_handle_client(IoTServer *server) {
 
     // Données à chiffrer : r2 (16 bytes) + t2 (16 bytes) = 32 bytes
     uint8_t plaintext_m4[32];
-    memcpy(plaintext_m4, c2.nonce, 16);
+    memcpy(plaintext_m4, c2.r, 16);
     memcpy(plaintext_m4 + 16, t2, 16);
 
     msg.type = MSG_M4;
@@ -141,10 +141,10 @@ void server_handle_client(IoTServer *server) {
     send_message(server->client_socket, &msg);
 
     // Calculer la clé de session t = t1 ^ t2
-    xor_bytes(server->session_key, t1, t2, KEY_SIZE_BYTES);
+    xor_bytes(server->t, t1, t2, KEY_SIZE_BYTES);
     printf("[SERVER] M4 envoyé. Clé de session établie !\n");
-    printf("Session Key: ");
-    print_hex(server->session_key, 16);
+    printf("Session Key (t): ");
+    print_hex(server->t, 16);
     printf("[SERVER] Authentification Mutuelle: SUCCÈS\n");
 
     close(server->client_socket);

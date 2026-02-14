@@ -31,7 +31,7 @@ typedef struct {
 // Structure pour représenter un défi
 typedef struct {
     int indices[P_INDICES];
-    uint8_t nonce[KEY_SIZE_BYTES]; // r1 ou r2
+    uint8_t r[KEY_SIZE_BYTES]; // r1 ou r2
 } Challenge;
 
 // Structures pour les messages du handshake

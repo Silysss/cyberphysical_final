@@ -45,7 +45,7 @@ void generate_challenge(Challenge *challenge) {
             }
         }
     }
-    generate_random_bytes(challenge->nonce, KEY_SIZE_BYTES);
+    generate_random_bytes(challenge->r, KEY_SIZE_BYTES);
 }
 
 // Calcule la clé k = XOR(K[c1], K[c2], ...)
