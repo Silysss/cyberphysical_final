@@ -148,6 +148,65 @@ static void test_vault_load_nonexistent(void) {
     print_test_pass();
 }
 
+static void test_hmac_sha256(void) {
+    print_test_header("HMAC-SHA256 (determinism)");
+
+    uint8_t data[] = "Machine learning is fun";
+    uint8_t key[] = "secret-key";
+    uint8_t out1[32], out2[32];
+
+    hmac_sha256(data, sizeof(data), key, sizeof(key), out1);
+    hmac_sha256(data, sizeof(data), key, sizeof(key), out2);
+
+    assert(memcmp(out1, out2, 32) == 0);
+
+    // Change data, hash must change
+    uint8_t out3[32];
+    uint8_t data2[] = "Machine learning is NOT fun";
+    hmac_sha256(data2, sizeof(data2), key, sizeof(key), out3);
+    assert(memcmp(out1, out3, 32) != 0);
+
+    print_test_pass();
+}
+
+static void test_vault_update_integrity(void) {
+    print_test_header("Vault update (synchronization)");
+
+    SecureVault vault_client, vault_server, original;
+    generate_secure_vault(&vault_client);
+    memcpy(&vault_server, &vault_client, sizeof(SecureVault));
+    memcpy(&original, &vault_client, sizeof(SecureVault));
+
+    uint8_t t[16] = "session-key-123";
+
+    update_secure_vault(&vault_client, t, 16);
+    update_secure_vault(&vault_server, t, 16);
+
+    // Both vaults must be identical after update
+    assert(memcmp(&vault_client, &vault_server, sizeof(SecureVault)) == 0);
+
+    // Vault must have changed from original
+    assert(memcmp(&vault_client, &original, sizeof(SecureVault)) != 0);
+
+    print_test_pass();
+}
+
+static void test_vault_update_changes(void) {
+    print_test_header("Vault update (content changes)");
+
+    SecureVault vault, original;
+    generate_secure_vault(&vault);
+    memcpy(&original, &vault, sizeof(SecureVault));
+
+    uint8_t t[16] = "session-key-456";
+    update_secure_vault(&vault, t, 16);
+
+    // Vault must be different after update
+    assert(memcmp(&vault, &original, sizeof(SecureVault)) != 0);
+
+    print_test_pass();
+}
+
 // ============================================================================
 // Main
 // ============================================================================
@@ -165,6 +224,9 @@ int main(void) {
     test_aes_encryption_decryption();
     test_vault_save_load();
     test_vault_load_nonexistent();
+    test_hmac_sha256();
+    test_vault_update_integrity();
+    test_vault_update_changes();
 
     printf("\n========================================\n");
     printf("  All unit tests passed successfully!\n");

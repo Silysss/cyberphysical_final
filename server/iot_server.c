@@ -10,9 +10,12 @@ void handle_signal(int sig) {
 }
 
 void server_init(IoTServer *server, int port) {
-    // Charger le vault partagé
-    if (!load_vault(&server->vault, "common/vault.bin")) {
-        fprintf(stderr, "Erreur: Impossible de charger le vault\n");
+    const char *vault_path = getenv("VAULT_PATH");
+    if (!vault_path) vault_path = "common/vault.bin";
+
+    // Charger le vault
+    if (!load_vault(&server->vault, vault_path)) {
+        fprintf(stderr, "Erreur: Impossible de charger le vault depuis %s\n", vault_path);
         exit(EXIT_FAILURE);
     }
     
@@ -145,6 +148,12 @@ void server_handle_client(IoTServer *server) {
     printf("[SERVER] M4 envoyé. Clé de session établie !\n");
     printf("Session Key (t): ");
     print_hex(server->t, 16);
+
+    // Mise à jour dynamique du Vault [Section IV.C]
+    update_secure_vault(&server->vault, server->t, KEY_SIZE_BYTES);
+    save_vault(&server->vault, "common/vault.bin");
+    printf("[SERVER] Vault mis à jour et sauvegardé pour la prochaine session.\n");
+
     printf("[SERVER] Authentification Mutuelle: SUCCÈS\n");
 
     close(server->client_socket);

@@ -11,6 +11,7 @@ services:
       - iot_network
     environment:
       - SERVER_PORT=8080
+      - VAULT_PATH=common/vault_server.bin
     command: make -B run-server
 
   client:
@@ -26,6 +27,7 @@ services:
     environment:
       - SERVER_HOST=server
       - SERVER_PORT=8080
+      - VAULT_PATH=common/vault_client.bin
     deploy:
       resources:
         limits:

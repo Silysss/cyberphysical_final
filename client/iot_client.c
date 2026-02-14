@@ -4,9 +4,12 @@
 #include <netdb.h>
 
 void client_init(IoTClient *client, const char *server_ip, int port) {
-    // Charger le vault partagé
-    if (!load_vault(&client->vault, "common/vault.bin")) {
-        fprintf(stderr, "Erreur: Impossible de charger le vault\n");
+    const char *vault_path = getenv("VAULT_PATH");
+    if (!vault_path) vault_path = "common/vault.bin";
+
+    // Charger le vault
+    if (!load_vault(&client->vault, vault_path)) {
+        fprintf(stderr, "Erreur: Impossible de charger le vault depuis %s\n", vault_path);
         exit(EXIT_FAILURE);
     }
 
@@ -30,6 +33,7 @@ void client_init(IoTClient *client, const char *server_ip, int port) {
 
     client->server_socket = -1;
 }
+
 
 int client_connect(IoTClient *client) {
     client->server_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -108,6 +112,16 @@ int client_authenticate(IoTClient *client) {
     printf("[CLIENT] M4 reçu et validé. Clé de session établie !\n");
     printf("Session Key (t): ");
     print_hex(client->t, 16);
+
+    // Mise à jour dynamique du Vault [Section IV.C]
+    update_secure_vault(&client->vault, client->t, KEY_SIZE_BYTES);
+    
+    const char *vault_path = getenv("VAULT_PATH");
+    if (!vault_path) vault_path = "common/vault.bin";
+    
+    save_vault(&client->vault, vault_path);
+    printf("[CLIENT] Vault mis à jour et sauvegardé dans %s\n", vault_path);
+
     printf("Authentification Mutuelle: SUCCÈS\n");
     return 0;
 }

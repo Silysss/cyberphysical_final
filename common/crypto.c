@@ -2,6 +2,7 @@
 #include <openssl/rand.h>
 #include <openssl/evp.h>
 #include <openssl/aes.h>
+#include <openssl/hmac.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -93,6 +94,46 @@ int aes_decrypt(const uint8_t *ciphertext, size_t ciphertext_len, const uint8_t 
 
     EVP_CIPHER_CTX_free(ctx);
     return plaintext_len;
+}
+
+// hmac_sha256(data, data_len, key, key_len, out) [cite: 821, Section IV.C]
+void hmac_sha256(const uint8_t *data, size_t data_len, const uint8_t *key, size_t key_len, uint8_t *out) {
+    unsigned int len;
+    HMAC(EVP_sha256(), key, key_len, data, data_len, out, &len);
+}
+
+// update_secure_vault(vault, session_data) [cite: 821, Section IV.C]
+// New vault partitions are xored with (h ^ i)
+void update_secure_vault(SecureVault *vault, const uint8_t *session_data, size_t data_len) {
+    uint8_t h[32]; // 32 bytes pour SHA-256
+    
+    // h = HMAC(current vault, data exchanged)
+    hmac_sha256((uint8_t *)vault, sizeof(SecureVault), session_data, data_len, h);
+
+    // Diviser le vault en partitions de k=256 bits (32 bytes)
+    size_t vault_size = sizeof(SecureVault);
+    size_t partition_size = 32;
+    size_t num_partitions = vault_size / partition_size;
+    if (vault_size % partition_size != 0) num_partitions++;
+
+    uint8_t *vault_ptr = (uint8_t *)vault;
+
+    for (size_t i = 0; i < num_partitions; i++) {
+        uint8_t h_prime[32];
+        memcpy(h_prime, h, 32);
+        
+        // h_prime = h ^ i
+        // On XOR l'index i (8 bits suffisent ici) sur le premier octet de h
+        h_prime[0] ^= (uint8_t)i;
+
+        size_t current_partition_offset = i * partition_size;
+        size_t remaining = vault_size - current_partition_offset;
+        size_t to_xor = (remaining < partition_size) ? remaining : partition_size;
+
+        for (size_t j = 0; j < to_xor; j++) {
+            vault_ptr[current_partition_offset + j] ^= h_prime[j];
+        }
+    }
 }
 
 static int send_all(int sockfd, const void *buf, size_t len) {

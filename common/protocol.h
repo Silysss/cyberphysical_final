@@ -71,10 +71,14 @@ void print_hex(const uint8_t *data, size_t size);
 // Fonctions de gestion du vault et du protocole
 void generate_challenge(Challenge *challenge);
 void compute_vault_key(const SecureVault *vault, const Challenge *challenge, uint8_t *key);
+void update_secure_vault(SecureVault *vault, const uint8_t *session_data, size_t data_len);
 
 // Chiffrement AES avec les clés du vault
 int aes_encrypt(const uint8_t *plaintext, size_t plaintext_len, const uint8_t *key, uint8_t *ciphertext);
 int aes_decrypt(const uint8_t *ciphertext, size_t ciphertext_len, const uint8_t *key, uint8_t *plaintext);
+
+// HMAC SHA-256
+void hmac_sha256(const uint8_t *data, size_t data_len, const uint8_t *key, size_t key_len, uint8_t *out);
 
 // Fonctions de communication réseau
 int send_message(int sockfd, const Message *message);
