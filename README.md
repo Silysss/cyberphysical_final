@@ -4,17 +4,25 @@ Implementation of the authentication protocol from the paper "Authentication of 
 
 ## Algorithm Overview
 
-The protocol implements **mutual authentication** (3-way handshake) between an IoT device (client) and server using a shared secret vault:
+The protocol implements **mutual authentication** (3-way handshake) and **session key establishment** between an IoT device (client) and server:
 
 1.  **M1 (Init)**: Client sends its `device_id` and a `session_id`.
 2.  **M2 (Challenge)**: Server sends Challenge `C1` and nonce `r1`.
-3.  **M3 (Response + Challenge)**: Client computes key `k1` from `C1`, generates challenge `C2` and nonce `r2`, and sends them encrypted with `k1`.
-4.  **M4 (Final Response)**: Server decrypts M3, verifies `r1`, computes `k2` from `C2`, and sends `r2` encrypted with `k2`.
+3.  **M3 (Response + Challenge)**:
+    - Client computes key `k1` from `C1`.
+    - Client generates random `t1`, Challenge `C2`, and nonce `r2`.
+    - Client sends $\{Enc(k1, r1 \parallel t1 \parallel C2 \parallel r2)\}$ to the server.
+4.  **M4 (Final Response)**:
+    - Server decrypts M3 using `k1`, verifies `r1`, and extracts `t1` and `C2`.
+    - Server computes `k2` from `C2` and generates random `t2`.
+    - Server sends $\{Enc(k2 \oplus t1, r2 \parallel t2)\}$ to the client.
+5.  **Session Key**: Both compute the session key **$t = t_1 \oplus t_2$**.
 
 ### Security Features
-- **Mutual Authentication**: Both client and server identify each other.
-- **AES-128-CBC Encryption**: Authentication messages are encrypted using keys derived from the XORed vault entries.
-- **Shared Secret Vault**: Both parties possess an identical `SecureVault` containing `n` random keys.
+- **Mutual Authentication**: Both client and server identify each other using the vault.
+- **AES-128-CBC Encryption**: All sensitive handshake components are encrypted.
+- **Dynamic Session Key**: A unique key $t$ is established for each session.
+- **Binding**: M4 is bound to M3 using $k_2 \oplus t_1$ as the encryption key.
 
 ### Protocol Parameters
 
@@ -106,13 +114,6 @@ make test
 ## Docker Networking
 
 The client connects to the server using the service name `server`. The `Makefile` automatically handles non-root user permissions by passing `MY_UID` and `MY_GID` to the containers.
-
-## Future Enhancements
-- [x] Client Daemonization & Trigger mechanism
-- [ ] Mutual authentication (3-way handshake)
-- [ ] Session key establishment (PFS)
-- [ ] Dynamic vault rotation (HMAC-based)
-- [ ] AES encryption for challenge-response
 
 ## Reference
 
