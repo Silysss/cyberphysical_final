@@ -1,0 +1,21 @@
+# Doxyfile Configuration for IoT Secure Vault project
+PROJECT_NAME           = "IoT Secure Vault Authentication"
+PROJECT_BRIEF          = "Mutual Authentication based on Secure Vaults"
+OUTPUT_DIRECTORY       = docs
+GENERATE_LATEX         = NO
+GENERATE_MAN           = NO
+GENERATE_RTF           = NO
+CASE_SENSE_NAMES       = YES
+INPUT                  = common client server README.md
+FILE_PATTERNS          = *.c *.h *.md
+RECURSIVE              = YES
+USE_MDFILE_AS_MAINPAGE = README.md
+OPTIMIZE_OUTPUT_FOR_C  = YES
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+QUIET                  = YES
+WARNINGS               = YES
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+# Disable dot if not installed locally
+HAVE_DOT               = NO

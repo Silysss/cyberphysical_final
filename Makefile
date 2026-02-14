@@ -3,70 +3,63 @@ CFLAGS = -I./common -Wall
 LDFLAGS = -lcrypto
 BUILD_DIR = build
 
-# ============================================================
-# Main targets
-# ============================================================
+# Sources
+SERVER_SRCS = server/main.c server/iot_server.c common/crypto.c
+CLIENT_SRCS = client/main.c client/iot_client.c common/crypto.c
+TEST_CRYPTO_SRCS = tests/unit/test_crypto.c common/crypto.c
+TEST_AUTH_SRCS = tests/integration/test_authentication.c common/crypto.c
+GEN_VAULT_SRCS = common/generate_vault.c common/crypto.c
 
-all: $(BUILD_DIR)/server_app $(BUILD_DIR)/client_app
+# Binaries
+SERVER_APP = $(BUILD_DIR)/server_app
+CLIENT_APP = $(BUILD_DIR)/client_app
+UNIT_TESTS = $(BUILD_DIR)/unit_tests
+INTEGRATION_TESTS = $(BUILD_DIR)/integration_test
+GEN_VAULT = $(BUILD_DIR)/generate_vault
 
-$(BUILD_DIR):
+all: prepare $(SERVER_APP) $(CLIENT_APP) $(UNIT_TESTS) $(INTEGRATION_TESTS) $(GEN_VAULT)
+
+prepare:
 	mkdir -p $(BUILD_DIR)
 
-# ============================================================
-# Applications
-# ============================================================
+$(SERVER_APP): $(SERVER_SRCS)
+	$(CC) $(CFLAGS) $(SERVER_SRCS) -o $(SERVER_APP) $(LDFLAGS)
 
-$(BUILD_DIR)/server_app: server/main.c server/iot_server.c common/crypto.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) server/main.c server/iot_server.c common/crypto.c -o $(BUILD_DIR)/server_app $(LDFLAGS)
+$(CLIENT_APP): $(CLIENT_SRCS)
+	$(CC) $(CFLAGS) $(CLIENT_SRCS) -o $(CLIENT_APP) $(LDFLAGS)
 
-$(BUILD_DIR)/client_app: client/main.c client/iot_client.c common/crypto.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) client/main.c client/iot_client.c common/crypto.c -o $(BUILD_DIR)/client_app $(LDFLAGS)
+$(UNIT_TESTS): $(TEST_CRYPTO_SRCS)
+	$(CC) $(CFLAGS) $(TEST_CRYPTO_SRCS) -o $(UNIT_TESTS) $(LDFLAGS)
 
-# ============================================================
-# Run commands (for Docker)
-# ============================================================
+$(INTEGRATION_TESTS): $(TEST_AUTH_SRCS)
+	$(CC) $(CFLAGS) $(TEST_AUTH_SRCS) -o $(INTEGRATION_TESTS) $(LDFLAGS)
 
-run-server: $(BUILD_DIR)/server_app
-	./$(BUILD_DIR)/server_app
+$(GEN_VAULT): $(GEN_VAULT_SRCS)
+	$(CC) $(CFLAGS) $(GEN_VAULT_SRCS) -o $(GEN_VAULT) $(LDFLAGS)
 
-run-client: $(BUILD_DIR)/client_app
-	./$(BUILD_DIR)/client_app
+# Execution locale (HORS DOCKER)
+run-server:
+	MASTER_KEY=1234567890123456 VAULT_PATH=server/vault.bin ./$(SERVER_APP)
 
-# ============================================================
-# Tools
-# ============================================================
+run-client:
+	MASTER_KEY=1234567890123456 VAULT_PATH=client/vault.bin ./$(CLIENT_APP)
 
-$(BUILD_DIR)/generate_vault: common/generate_vault.c common/crypto.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) common/generate_vault.c common/crypto.c -o $(BUILD_DIR)/generate_vault $(LDFLAGS)
-
-generate-vault: $(BUILD_DIR)/generate_vault
-	./$(BUILD_DIR)/generate_vault
+generate-vault: $(GEN_VAULT)
+	MASTER_KEY=1234567890123456 ./$(GEN_VAULT)
 	cp common/vault.bin client/vault.bin
 	cp common/vault.bin server/vault.bin
 	@echo "✅ Vaults distribués dans client/ et server/"
 
-# ============================================================
 # Tests
-# ============================================================
+unit-tests: $(UNIT_TESTS)
+	./$(UNIT_TESTS)
 
-$(BUILD_DIR)/unit_tests: tests/unit/test_crypto.c common/crypto.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) tests/unit/test_crypto.c common/crypto.c -o $(BUILD_DIR)/unit_tests $(LDFLAGS)
-
-$(BUILD_DIR)/integration_test: tests/integration/test_authentication.c common/crypto.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) tests/integration/test_authentication.c common/crypto.c -o $(BUILD_DIR)/integration_test $(LDFLAGS)
-
-unit-tests: $(BUILD_DIR)/unit_tests
-	./$(BUILD_DIR)/unit_tests
-
-integration-tests: $(BUILD_DIR)/integration_test
-	./$(BUILD_DIR)/integration_test
+integration-tests: $(INTEGRATION_TESTS)
+	./$(INTEGRATION_TESTS)
 
 test: unit-tests integration-tests
 
-# ============================================================
-# Docker workflow
-# ============================================================
-
+# Docker targets
 up:
 	docker compose up --build -d
 
@@ -77,12 +70,10 @@ logs:
 	docker compose logs -f
 
 trigger-auth:
-	docker exec iot_device pkill -USR1 client_app
+	docker compose kill -s SIGUSR1 iot_device
+	@echo "🔔 Signal SIGUSR1 envoyé au client"
 
-# ============================================================
-# Cleanup
-# ============================================================
-
+# Nettoyage
 clean:
 	rm -rf $(BUILD_DIR)
 	rm -f common/*.bin client/*.bin server/*.bin
@@ -92,4 +83,13 @@ clean:
 docker-clean:
 	docker compose run --rm server rm -rf build
 
-.PHONY: all run-server run-client generate-vault unit-tests integration-tests test up stop clean
+# Documentation
+doc:
+	doxygen Doxyfile
+	@echo "📚 Documentation générée dans docs/html/"
+
+clean-doc:
+	rm -rf docs
+	@echo "🧹 Documentation supprimée"
+
+.PHONY: all prepare run-server run-client generate-vault unit-tests integration-tests test up stop logs trigger-auth clean docker-clean doc clean-doc

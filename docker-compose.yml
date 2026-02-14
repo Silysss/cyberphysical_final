@@ -10,6 +10,7 @@ services:
     environment:
       - SERVER_PORT=8080
       - VAULT_PATH=server/vault.bin
+      - MASTER_KEY=${MASTER_KEY}
     command: make -B run-server
 
   client:
@@ -26,6 +27,7 @@ services:
       - SERVER_HOST=server
       - SERVER_PORT=8080
       - VAULT_PATH=client/vault.bin
+      - MASTER_KEY=${MASTER_KEY}
     deploy:
       resources:
         limits:

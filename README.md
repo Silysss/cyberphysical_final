@@ -1,120 +1,126 @@
 # IoT Secure Vault Authentication
 
-Implementation of the authentication protocol from the paper "Authentication of IoT Device and IoT Server Using Secure Vaults".
+Implementation of the authentication protocol from the research paper **"Authentication of IoT Device and IoT Server Using Secure Vaults"** (Shah & Venkatesan).
 
-## Algorithm Overview
+This project demonstrates a robust mutual authentication system for IoT devices, featuring dynamic session key establishment, forward secrecy via vault updates, and at-rest encryption for sensitive keys.
 
-The protocol implements **mutual authentication** (3-way handshake) and **session key establishment** between an IoT device (client) and server:
+## 🚀 Key Features
 
-1.  **M1 (Init)**: Client sends its `device_id` and a `session_id`.
-2.  **M2 (Challenge)**: Server sends Challenge `C1` and nonce `r1`.
-3.  **M3 (Response + Challenge)**:
-    - Client computes key `k1` from `C1`.
-    - Client generates random `t1`, Challenge `C2`, and nonce `r2`.
-    - Client sends $\{Enc(k1, r1 \parallel t1 \parallel C2 \parallel r2)\}$ to the server.
-4.  **M4 (Final Response)**:
-    - Server decrypts M3 using `k1`, verifies `r1`, and extracts `t1` and `C2`.
-    - Server computes `k2` from `C2` and generates random `t2`.
-    - Server sends $\{Enc(k2 \oplus t1, r2 \parallel t2)\}$ to the client.
-5.  **Session Key**: Both compute the session key **$t = t_1 \oplus t_2$**.
+*   **Mutual Authentication (3-Way Handshake)**: Both the IoT device and the server verify each other's identity using a shared secret "vault".
+*   **Dynamic Session Key Establishment**: A unique 128-bit session key $t$ is established for every session.
+*   **Encrypted Data Communication**: After authentication, the established session key $t$ is used to encrypt subsequent data exchanges.
+*   **Forward Secrecy (Dynamic Vault Update)**: The secret vault is automatically updated after each successful handshake, ensuring that compromising a past vault does not lead to the compromise of future sessions.
+*   **Encryption at Rest**: The vault files stored on disk are protected using AES-128-CBC encryption with a master key.
+*   **Dockerized Environment**: Fully containerized for easy deployment and isolation.
 
-### Security Features
-- **Mutual Authentication**: Both client and server identify each other using the vault.
-- **AES-128-CBC Encryption**: All sensitive handshake components are encrypted.
-- **Dynamic Session Key**: A unique key $t$ is established for each session.
-- **Binding**: M4 is bound to M3 using $k_2 \oplus t_1$ as the encryption key.
+---
 
-### Protocol Parameters
+## 🛠 Project Architecture
 
-| Parameter       | Value | Description                         |
-| --------------- | ----- | ----------------------------------- |
-| `N_KEYS`        | 4     | Number of keys in vault (n)         |
-| `KEY_SIZE_BITS` | 128   | Key size in bits (m)                |
-| `P_INDICES`     | 2     | Number of indices per challenge (p) |
-| `AES_BLOCK_SIZE`| 16    | AES block size for encryption       |
-
-## Project Structure
-
-```
-.
-├── client/           # IoT device (client) code
-│   ├── main.c        # Entry point
-│   ├── iot_client.c  # Client logic
-│   └── iot_client.h
-├── server/           # Server code
-│   ├── main.c        # Entry point
-│   ├── iot_server.c  # Server logic
-│   └── iot_server.h
-├── common/           # Shared code
-│   ├── protocol.h    # Protocol definitions
-│   └── crypto.c      # Crypto primitives & network functions
-│   └── generate_vault.c
-├── tests/
-│   ├── unit/         # Unit tests
-│   └── integration/  # Integration tests
-├── Makefile
-└── docker-compose.yml
+```mermaid
+graph TD
+    subgraph "IoT Device (Client)"
+        C[iot_client] --> CV[vault.bin]
+        C -- establishing t --> S[iot_server]
+    end
+    subgraph "IoT Server"
+        S --> SV[vault.bin]
+    end
+    CV -. Encrypted at Rest .-> K[MASTER_KEY]
+    SV -. Encrypted at Rest .-> K
 ```
 
-## Build & Run Instructions
+### Protocol Phases
+
+1.  **Phase 1: Authentication (M1-M4 Handshake)**
+    *   **M1**: Client initiates with Device ID.
+    *   **M2**: Server sends Challenge $C_1$ and nonce $r_1$.
+    *   **M3**: Client responds with $Enc(k_1, r_1 || t_1 || C_2 || r_2)$ where $k_1$ is derived from $C_1$.
+    *   **M4**: Server responds with $Enc(k_2 \oplus t_1, r_2 || t_2)$.
+    *   **Key**: Session key $t = t_1 \oplus t_2$ is established.
+
+2.  **Phase 2: Secure Communication**
+    *   An authenticated socket is maintained.
+    *   The client sends data encrypted with $t$.
+    *   The server decrypts and processes the data.
+
+---
+
+## 🚦 Getting Started
 
 ### Prerequisites
 
-- GCC compiler
-- OpenSSL development libraries
-- Docker & Docker Compose
+*   Docker & Docker Compose
+*   Make (optional, for easy workflow commands)
 
-### 1. Initial Setup
+### 1. Configure the Environment
 
-Before running the system, you must generate the shared secret vault:
+Create a `.env` file in the root directory (or use the one provided):
+
+```bash
+MASTER_KEY=1234567890123456 # Must be at least 16 bytes
+MY_UID=1000
+MY_GID=1000
+```
+
+### 2. Generate the Secure Vaults
+
+The system requires an initial shared secret vault. Use the provided tool to create and distribute it securely:
 
 ```bash
 make generate-vault
 ```
 
-### 2. Running with Docker (Recommended)
+### 3. Start the System
 
-The project is optimized for a containerized environment where the client and server run as persistent services.
+Bring up the persistent server and the client daemon:
 
 ```bash
-# Start the system
 make up
+```
 
-# In another terminal, trigger an authentication session
+### 4. Trigger Authentication & Secure Messages
+
+Since the client runs as a daemon, you trigger the authentication process by sending a signal:
+
+```bash
 make trigger-auth
+```
 
-# Monitor the interaction
+### 5. Monitor Logs
+
+Observe the mutual authentication, the session key establishment, and the subsequent encrypted message exchange:
+
+```bash
 docker compose logs -f
 ```
 
-> [!NOTE]
-> The client now runs as a **daemon**. It will stay alive indefinitely and perform authentication only when it receives a `SIGUSR1` signal (sent via `make trigger-auth`).
-
-### 3. Local Build (Manual)
-
-```bash
-# Build everything
-make all
-
-# Run server
-./build/server_app
-
-# Run client (daemon mode)
-./build/client_app
-# In another terminal: pkill -USR1 client_app
+Example output:
+```text
+iot_server  | [SERVER] Authentification Mutuelle: SUCCÈS
+iot_device  | [CLIENT] Tentative d'envoi de données sécurisées...
+iot_server  | [SERVER] Données reçues (chiffrées par t): "Données sécurisées de IOT-DEVICE-001"
 ```
 
-## Testing
+---
+
+## 🧹 Maintenance
+
+*   **Stop the system**: `make stop`
+*   **Clean build artifacts and vaults**: `make clean`
+*   **Run Unit/Integration tests**: `make test`
+
+## 📚 Documentation
+
+The source code is documented using Doxygen-style comments. You can generate a full HTML documentation by running:
 
 ```bash
-# Run all tests (Unit + Integration)
-make test
+# Generate HTML documentation
+make doc
 ```
 
-## Docker Networking
+Once generated, open `docs/html/index.html` in your web browser.
 
-The client connects to the server using the service name `server`. The `Makefile` automatically handles non-root user permissions by passing `MY_UID` and `MY_GID` to the containers.
+## 📚 References
 
-## Reference
-
-Based on: "Authentication of IoT Device and IoT Server Using Secure Vaults" (Shah & Venkatesan)
+*   *Shah, J. and Venkatesan, S., "Authentication of IoT Device and IoT Server Using Secure Vaults", 2018.*

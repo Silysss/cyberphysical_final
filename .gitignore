@@ -1,1 +1,7 @@
 build/
+docs/
+server/vault.bin
+client/vault.bin
+common/vault.bin
+.env
+.claude
