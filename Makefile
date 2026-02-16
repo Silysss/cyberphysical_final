@@ -73,8 +73,8 @@ logs:
 	docker compose logs -f
 
 trigger-auth:
-	docker compose kill -s SIGUSR1 iot_device
-	@echo "🔔 SIGUSR1 signal sent to client"
+	docker compose exec client pkill -USR1 client_app.ex
+	@echo "🔔 SIGUSR1 signal sent to client via pkill"
 
 # Cleanup
 clean:

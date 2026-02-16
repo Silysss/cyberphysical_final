@@ -4,3 +4,4 @@ client/vault.bin
 common/vault.bin
 .env
 .claude
+build/
